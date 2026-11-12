@@ -29,7 +29,7 @@ with st.sidebar:
 uploaded = st.file_uploader("이미지 파일을 올려주세요", type=["jpg", "jpeg", "png", "bmp", "tif", "tiff"])
 
 if uploaded is None:
-    st.info("왼쪽에서 파라미터를 조절하고, 위에 이미지를 업로드하면 결과가 나와요.")
+    st.info("왼쪽에서 파라미터를 조절하고 위에 이미지를 업로드 업로드하면 결과 나옴")
     st.stop()
 
 # ---------------- 이미지 불러오기 (grayscale) ----------------
@@ -104,7 +104,7 @@ if n_obj > 0:
         hide_index=True,
     )
 else:
-    st.warning("검출된 object가 없어요. 왼쪽 파라미터(물체 밝기, 임계값)를 바꿔보세요.")
+    st.warning("검출된 object가 없음 왼쪽 파라미터를 바꾸세요")
 
 with st.expander("제거되기 전 전체 connected component 보기"):
     st.write(f"전체 component 수: {len(r['all_cc'])}  →  작은 조각 제거 후: {n_obj}")
