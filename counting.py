@@ -1,75 +1,68 @@
-"""HW05 object counting 처리 로직 (Streamlit 화면과 분리)."""
+"""자동 object counting (HW05 파이프라인 기반).
+
+HW05 순서: median filter → Otsu threshold → morphology → connected component labeling
+여기에 '배경 보정(top-hat)'을 더하고, 사진마다 맞는 설정을 자동으로 고른다.
+
+[자동 선택 아이디어]
+  물체 밝기(어두움/밝음) × 배경 보정 크기(6가지) = 12가지 후보를 전부 돌려보고,
+  "물체다운 결과"가 나온 후보를 고른다.
+    - solidity(꽉 찬 정도)가 높을수록 좋음   → 배경 조각·무늬는 울퉁불퉁해서 낮음
+    - 크기가 서로 비슷할수록 좋음 (CV 낮음)  → 같은 종류 물체를 센다는 가정
+    - Otsu로 잘 나뉠수록 좋음 (eta 높음)     → 물체와 배경이 뚜렷하게 구분됨
+"""
 import numpy as np
-import scipy.signal as signal
 import scipy.ndimage as nd
 from skimage.filters import threshold_otsu, apply_hysteresis_threshold
+from skimage.measure import regionprops
+
+WORK_SIZE = 1000                     # 긴 변을 1000px로 맞춰서 처리 (사진마다 기준 통일)
+BG_PCTS = [3, 5, 8, 12, 20, 35]      # 배경 보정 크기 후보 (긴 변 대비 %)
 
 
-def _components(mask, size_ratio, min_area=0):
-    """connected component labeling + 픽셀 수 + 작은 조각 제거."""
+def _run(fd, dark, pct):
+    """후보 하나 실행: top-hat → Otsu(hysteresis) → opening/fill → labeling → 작은 조각 제거."""
+    L = max(fd.shape)
+    bg_size = max(3, int(L * pct / 100) | 1)
+
+    # 1) 배경 보정 (top-hat): bg_size보다 작은 물체만 남기고 배경·조명 차이 제거
+    enhanced = nd.black_tophat(fd, size=bg_size) if dark else nd.white_tophat(fd, size=bg_size)
+
+    # 2) Otsu threshold + hysteresis (덩어리 안에 아주 밝은 픽셀이 있어야 물체로 인정)
+    th = float(threshold_otsu(enhanced))
+    lo, hi = enhanced[enhanced <= th], enhanced[enhanced > th]
+    w = hi.size / enhanced.size
+    eta = (w * (1 - w) * (hi.mean() - lo.mean()) ** 2 / enhanced.var()) if lo.size and hi.size else 0.0
+    mask = apply_hysteresis_threshold(enhanced, th, th * 1.5)
+
+    # 3) morphology: opening(가는 무늬·노이즈 제거) → hole filling
+    k = max(3, int(L / 200) | 1)
+    mask = nd.binary_opening(mask, structure=np.ones((k, k)))
+    mask = nd.binary_fill_holes(mask)
+
+    # 4) connected component labeling
     labels, nums = nd.label(mask)
-    if nums == 0:
-        empty = np.zeros((0, 2))
-        return labels, empty, empty, np.zeros_like(labels)
-    sizes = nd.sum(mask, labels, index=np.arange(1, nums + 1))
-    all_cc = np.column_stack([np.arange(1, nums + 1), sizes])
-    # median의 size_ratio배 이하인 조각은 노이즈로 보고 제거
-    keep = all_cc[:, 1] > size_ratio * np.median(all_cc[:, 1])
-    keep &= all_cc[:, 1] >= min_area          # 너무 작은 점(바닥 무늬 등) 제거
-    cc = all_cc[keep]
-    kept = np.where(np.isin(labels, cc[:, 0].astype(int)), labels, 0)
-    return labels, all_cc, cc, kept
+    props = [p for p in regionprops(labels) if p.area >= (L * 0.005) ** 2]   # 너무 작은 점 제거
+    if props:
+        med = np.median([p.area for p in props])
+        props = [p for p in props if p.area > 0.2 * med]                    # HW05의 median 기준
+
+    n = len(props)
+    areas = np.array([p.area for p in props], dtype=float)
+    sol = float(np.mean([p.solidity for p in props])) if n else 0.0
+    cv = float(areas.std() / areas.mean()) if n else 9.0
+    score = sol - cv + 0.5 * eta - (n < 3) - (mask.mean() > 0.6)
+
+    keep_labels = [p.label for p in props]
+    kept = np.where(np.isin(labels, keep_labels), labels, 0)
+    cc = np.array([[p.label, p.area] for p in props], dtype=float).reshape(-1, 2)
+    return dict(dark=dark, pct=pct, bg_size=bg_size, enhanced=enhanced, th=th, mask=mask,
+                labels=labels, kept=kept, cc=cc, n=n, sol=sol, cv=cv, eta=eta, score=score)
 
 
-def count_hw05(f, median_size=7, use_otsu=True, manual_th=149, dark_objects=True,
-               low_cut=30, morph_size=9, size_ratio=0.5):
-    """[방식 1] HW05와 똑같은 순서."""
-    f_denoised = signal.medfilt2d(f.astype(np.float64), median_size)
-
-    th = float(threshold_otsu(f_denoised)) if use_otsu else float(manual_th)
-    if dark_objects:
-        mask = (f_denoised < th) & (f_denoised > low_cut)
-    else:
-        mask = f_denoised > th
-
-    st = np.ones((morph_size, morph_size))
-    mask = nd.binary_closing(mask, structure=st)
-    mask = nd.binary_fill_holes(mask)
-    mask = nd.binary_opening(mask, structure=st)
-
-    labels, all_cc, cc, kept = _components(mask, size_ratio)
-    return dict(denoised=f_denoised, enhanced=None, th=th, mask=mask,
-                labels=labels, all_cc=all_cc, cc=cc, kept=kept)
-
-
-def count_tophat(f, median_size=3, dark_objects=False, bg_size=41, use_otsu=True,
-                 manual_th=40, morph_size=3, size_ratio=0.2, strong_k=1.5, min_area=25):
-    """[방식 2] 배경 보정(top-hat) 후 counting.
-
-    top-hat = 원본 - opening(원본)
-    opening은 bg_size보다 작은 밝은 물체를 지워서 '배경만 남은 영상'을 만든다.
-    원본에서 그 배경을 빼면 작은 물체만 남고, 조명 차이·큰 타일 같은 배경은 사라진다.
-    """
-    f_denoised = nd.median_filter(f.astype(np.float64), size=median_size)
-
-    if dark_objects:
-        enhanced = nd.black_tophat(f_denoised, size=bg_size)  # 어두운 작은 물체
-    else:
-        enhanced = nd.white_tophat(f_denoised, size=bg_size)  # 밝은 작은 물체
-
-    th = float(threshold_otsu(enhanced)) if use_otsu else float(manual_th)
-    # hysteresis threshold:
-    #   th 이상인 픽셀을 후보로 잡되, 그 덩어리 안에 th*strong_k 이상인 "아주 밝은" 픽셀이
-    #   하나라도 있어야 물체로 인정 → 살짝 밝은 바닥 무늬는 탈락, 하얀 물체는 통과
-    if strong_k > 1:
-        mask = apply_hysteresis_threshold(enhanced, th, th * strong_k)
-    else:
-        mask = enhanced > th
-
-    if morph_size > 1:
-        mask = nd.binary_opening(mask, structure=np.ones((morph_size, morph_size)))
-    mask = nd.binary_fill_holes(mask)
-
-    labels, all_cc, cc, kept = _components(mask, size_ratio, min_area)
-    return dict(denoised=f_denoised, enhanced=enhanced, th=th, mask=mask,
-                labels=labels, all_cc=all_cc, cc=cc, kept=kept)
+def auto_count(f):
+    """grayscale 배열 f를 받아 12개 후보 중 점수가 가장 높은 결과를 돌려준다."""
+    fd = nd.median_filter(f.astype(np.float64), size=3)   # 노이즈 제거 (HW05의 median filter)
+    results = [_run(fd, dark, pct) for dark in (True, False) for pct in BG_PCTS]
+    best = max(results, key=lambda r: r["score"])
+    best["denoised"] = fd
+    return best, results
