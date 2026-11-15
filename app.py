@@ -12,7 +12,7 @@ from skimage.segmentation import find_boundaries
 from counting import auto_count, WORK_SIZE
 
 st.set_page_config(page_title="Homework#6 - Object Counting", layout="wide")
-st.title("Object Counting")
+st.title("Homework#6 -Object Counting")
 st.caption("이미지를 올리면 자동으로 물체 개수를 셈 "
            "(Homework #5 기반)")
 
