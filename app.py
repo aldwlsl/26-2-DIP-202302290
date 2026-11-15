@@ -57,8 +57,13 @@ with st.sidebar:
         manual_th = st.slider("수동 임계값", 0, 255, 40, disabled=use_otsu)
         morph_default = max(1, int(L / 300) | 1)
         morph_size = st.slider("Opening 구조요소 크기", 1, 15, min(15, morph_default), step=2)
+        strong_k = st.slider("강한 밝기 기준 (Otsu × 배수)", 1.0, 3.0, 1.5, step=0.1,
+                             help="덩어리 안에 이만큼 밝은 픽셀이 있어야 물체로 인정. 올리면 희미한 무늬가 빠져요")
+        min_pct = st.slider("최소 물체 크기 (긴 변 대비 %)", 0.0, 2.0, 0.5, step=0.1,
+                            help="이 길이의 정사각형보다 작은 점은 버려요")
+        min_area = int((L * min_pct / 100) ** 2)
         size_ratio = st.slider("작은 조각 제거 기준 (median 대비)", 0.0, 1.0, 0.2, step=0.05)
-        st.caption(f"배경 보정 크기 = {bg_size} px")
+        st.caption(f"배경 보정 크기 = {bg_size} px · 최소 물체 크기 = {min_area} px")
 
 with st.spinner("처리 중..."):
     if mode == MODE_HW:
@@ -66,7 +71,7 @@ with st.spinner("처리 중..."):
                        low_cut, morph_size, size_ratio)
     else:
         r = count_tophat(f, median_size, dark_objects, bg_size, use_otsu,
-                         manual_th, morph_size, size_ratio)
+                         manual_th, morph_size, size_ratio, strong_k, min_area)
 
 cc = r["cc"]
 n_obj = len(cc)
@@ -93,15 +98,15 @@ def show(ax, im, title, cmap="gray"):
 # ---------------- 결과: 처리 단계 ----------------
 st.subheader("처리 단계")
 if r["enhanced"] is None:
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5))
-    show(axes[0], f, "1. Input (grayscale)")
+    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
+    show(axes[0], f, "1. Input")
     show(axes[1], r["denoised"], "2. Median filtered")
     show(axes[2], r["mask"], "3. Binary mask")
     show(axes[3], np.ma.masked_equal(r["kept"], 0), "4. Labeled objects", cmap="Spectral_r")
 else:
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5))
-    show(axes[0], f, "1. Input (grayscale)")
-    show(axes[1], r["enhanced"], "2. Background removed (top-hat)")
+    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
+    show(axes[0], f, "1. Input")
+    show(axes[1], r["enhanced"], "2. Top-hat")
     show(axes[2], r["mask"], "3. Binary mask")
     show(axes[3], np.ma.masked_equal(r["kept"], 0), "4. Labeled objects", cmap="Spectral_r")
 fig.tight_layout()
