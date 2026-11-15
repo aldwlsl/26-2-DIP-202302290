@@ -2,10 +2,10 @@
 import numpy as np
 import scipy.signal as signal
 import scipy.ndimage as nd
-from skimage.filters import threshold_otsu
+from skimage.filters import threshold_otsu, apply_hysteresis_threshold
 
 
-def _components(mask, size_ratio):
+def _components(mask, size_ratio, min_area=0):
     """connected component labeling + 픽셀 수 + 작은 조각 제거."""
     labels, nums = nd.label(mask)
     if nums == 0:
@@ -14,7 +14,9 @@ def _components(mask, size_ratio):
     sizes = nd.sum(mask, labels, index=np.arange(1, nums + 1))
     all_cc = np.column_stack([np.arange(1, nums + 1), sizes])
     # median의 size_ratio배 이하인 조각은 노이즈로 보고 제거
-    cc = all_cc[all_cc[:, 1] > size_ratio * np.median(all_cc[:, 1])]
+    keep = all_cc[:, 1] > size_ratio * np.median(all_cc[:, 1])
+    keep &= all_cc[:, 1] >= min_area          # 너무 작은 점(바닥 무늬 등) 제거
+    cc = all_cc[keep]
     kept = np.where(np.isin(labels, cc[:, 0].astype(int)), labels, 0)
     return labels, all_cc, cc, kept
 
@@ -41,7 +43,7 @@ def count_hw05(f, median_size=7, use_otsu=True, manual_th=149, dark_objects=True
 
 
 def count_tophat(f, median_size=3, dark_objects=False, bg_size=41, use_otsu=True,
-                 manual_th=40, morph_size=3, size_ratio=0.2):
+                 manual_th=40, morph_size=3, size_ratio=0.2, strong_k=1.5, min_area=25):
     """[방식 2] 배경 보정(top-hat) 후 counting.
 
     top-hat = 원본 - opening(원본)
@@ -56,12 +58,18 @@ def count_tophat(f, median_size=3, dark_objects=False, bg_size=41, use_otsu=True
         enhanced = nd.white_tophat(f_denoised, size=bg_size)  # 밝은 작은 물체
 
     th = float(threshold_otsu(enhanced)) if use_otsu else float(manual_th)
-    mask = enhanced > th
+    # hysteresis threshold:
+    #   th 이상인 픽셀을 후보로 잡되, 그 덩어리 안에 th*strong_k 이상인 "아주 밝은" 픽셀이
+    #   하나라도 있어야 물체로 인정 → 살짝 밝은 바닥 무늬는 탈락, 하얀 물체는 통과
+    if strong_k > 1:
+        mask = apply_hysteresis_threshold(enhanced, th, th * strong_k)
+    else:
+        mask = enhanced > th
 
     if morph_size > 1:
         mask = nd.binary_opening(mask, structure=np.ones((morph_size, morph_size)))
     mask = nd.binary_fill_holes(mask)
 
-    labels, all_cc, cc, kept = _components(mask, size_ratio)
+    labels, all_cc, cc, kept = _components(mask, size_ratio, min_area)
     return dict(denoised=f_denoised, enhanced=enhanced, th=th, mask=mask,
                 labels=labels, all_cc=all_cc, cc=cc, kept=kept)
