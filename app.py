@@ -11,14 +11,14 @@ from skimage.segmentation import find_boundaries
 
 from counting import auto_count, WORK_SIZE
 
-st.set_page_config(page_title="Object Counting", layout="wide")
+st.set_page_config(page_title="Homework#6 - Object Counting", layout="wide")
 st.title("Object Counting")
-st.caption("이미지를 올리면 자동으로 물체 개수를 세어줘요. "
-           "(Homework #5 기반: Median filter → 배경 보정 → Otsu thresholding → Morphology → Labeling)")
+st.caption("이미지를 올리면 자동으로 물체 개수를 셈 "
+           "(Homework #5 기반)")
 
-uploaded = st.file_uploader("이미지 파일을 올려주세요", type=["jpg", "jpeg", "png", "bmp", "tif", "tiff"])
+uploaded = st.file_uploader("이미지 파일 업로드", type=["jpg", "jpeg", "png", "bmp", "tif", "tiff"])
 if uploaded is None:
-    st.info("이미지를 업로드하면 결과가 바로 나와요.")
+    st.info("이미지 업로드하면 바로 결과 나옴")
     st.stop()
 
 
@@ -35,7 +35,7 @@ def load_and_count(data: bytes):
     return rgb, best, table
 
 
-with st.spinner("여러 설정을 비교해서 가장 잘 맞는 방법을 찾는 중... (10~20초)"):
+with st.spinner("여러 방법을 비교해서 가장 잘 맞는 방법을 찾는 중... (10~20초)"):
     rgb, r, table = load_and_count(uploaded.getvalue())
 
 cc = r["cc"]
@@ -46,7 +46,7 @@ c1, c2 = st.columns([1, 2])
 c1.metric("검출된 object 수", n_obj)
 c2.metric("자동으로 고른 방법", r["name"])
 if r["score"] < 0:
-    st.warning("물체끼리 많이 붙어 있거나 배경이 복잡해서 결과가 정확하지 않을 수 있어요.")
+    st.warning("물체끼리 많이 붙어 있거나 배경이 복잡해서 결과가 정확하지 않을 수 있음")
 
 
 def show(ax, im, title, cmap=None):
@@ -103,10 +103,10 @@ if n_obj > 0:
     st.dataframe({"object 번호": list(range(1, n_obj + 1)),
                   "pixel 수": [int(v) for v in cc[:, 1]]}, hide_index=True)
 else:
-    st.warning("물체를 찾지 못했어요. 물체와 배경의 차이가 뚜렷한 사진으로 다시 시도해보세요.")
+    st.warning("물체를 찾지 못했어요. 물체와 배경의 차이가 뚜렷한 사진으로 다시 시도")
 
 # ---------------- 자동 선택 과정 ----------------
-with st.expander("자동 설정은 어떻게 골랐나요?"):
+with st.expander("자동 설정은 어떻게 선택했나"):
     st.markdown(
         "**1. 배경과 다른 정도를 여러 방식으로 계산** (총 17가지)\n"
         "- 밝기 차이 + top-hat (어두운/밝은 물체, 배경 보정 크기 5가지)\n"
@@ -114,7 +114,7 @@ with st.expander("자동 설정은 어떻게 골랐나요?"):
         "- 사진 테두리 색(배경색)과의 차이\n\n"
         "**2. 각각 HW05 방식으로 분할**: Otsu threshold → closing → hole filling → opening → labeling "
         "(+ 붙은 물체를 나누는 watershed 적용 / 미적용)\n\n"
-        "**3. 34개 결과에 점수를 매겨 가장 '물체다운' 결과 선택**\n"
+        "**3. 34개 결과에 점수를 매겨 가장 물체다운 결과 선택**\n"
         "- **Solidity**: 물체가 꽉 찬 모양일수록 높음 (바닥 무늬·배경 조각은 낮음)\n"
         "- **크기 CV**: 물체 크기가 서로 비슷할수록 낮음\n"
         "- **Otsu η**: 물체와 배경이 뚜렷하게 나뉠수록 높음\n\n"
